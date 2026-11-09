@@ -27,6 +27,7 @@ module i2c_slave #(
     logic [2:0] bit_cnt;
     logic [7:0] shift_reg;
     logic sda_drive_low;
+    logic first_fall;
 
     assign sda_io = sda_drive_low ? 1'b0 : 1'bz;
 
@@ -55,12 +56,14 @@ module i2c_slave #(
             shift_reg <= 8'd0;
             rx_data_o <= 8'd0;
             valid_o <= 1'b0;
+            first_fall <= 1'b0;
         end else begin
             valid_o <= 1'b0;
 
             if (start_cond) begin
                 c_state <= ST_ADDR;
                 bit_cnt <= 3'd7;
+                first_fall <= 1'b1;
             end else if (stop_cond) begin
                 c_state <= ST_IDLE;
             end else begin
@@ -71,7 +74,9 @@ module i2c_slave #(
                 end
 
                 if (scl_fall) begin
-                    if (c_state == ST_ADDR || c_state == ST_DATA) begin
+                    if (first_fall) begin
+                        first_fall <= 1'b0;
+                    end else if (c_state == ST_ADDR || c_state == ST_DATA) begin
                         if (bit_cnt > 3'd0)
                             bit_cnt <= bit_cnt - 3'd1;
                     end else if (c_state == ST_ACK_ADDR) begin
@@ -84,13 +89,13 @@ module i2c_slave #(
             end
         end
     end
- always_comb begin
-   
+
+    always_comb begin
         n_state = c_state;
 
         case (c_state)
             ST_ADDR: begin
-                if (scl_fall && bit_cnt == 3'd0) begin
+                if (scl_fall && !first_fall && bit_cnt == 3'd0) begin
                     if (shift_reg[7:1] == SLAVE_ADDR && shift_reg[0] == 1'b0)
                         n_state = ST_ACK_ADDR;
                     else
@@ -118,4 +123,3 @@ module i2c_slave #(
     end
 
 endmodule
-
