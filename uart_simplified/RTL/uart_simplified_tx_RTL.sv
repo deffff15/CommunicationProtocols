@@ -2,17 +2,16 @@
 module uart_tx #(
     parameter int CLK_DIV = 27
 )(
-    input  logic       clk,
-    input  logic       rst_n,
-    input  logic       start_i,
-    input  logic [7:0] data_i,
-    output logic       busy_o,
-    output logic       tx_o
+    input logic clk,
+    input logic rst_n,
+    input logic start_i,
+    input logic [7:0] data_i,
+    output logic busy_o,
+    output logic tx_o
 );
 
     localparam int BIT_CYCLES = 16 * CLK_DIV;
     localparam int CNT_WIDTH = (BIT_CYCLES <= 1) ? 1 : $clog2(BIT_CYCLES);
-    localparam logic [CNT_WIDTH-1:0] BIT_LAST = BIT_CYCLES - 1;
 
     typedef enum logic [1:0] {
         ST_IDLE,
@@ -30,18 +29,20 @@ module uart_tx #(
     assign busy_o = (state != ST_IDLE);
 
     always_comb begin
+        tx_o = 1'b1;
+
         case (state)
             ST_START: tx_o = 1'b0;
-            ST_DATA:  tx_o = shift_reg[0];
-            default:  tx_o = 1'b1;
+            ST_DATA: tx_o = shift_reg[0];
+            default: tx_o = 1'b1;
         endcase
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state     <= ST_IDLE;
-            cnt       <= '0;
-            bit_cnt   <= '0;
+            state <= ST_IDLE;
+            cnt <= '0;
+            bit_cnt <= '0;
             shift_reg <= '0;
         end else begin
             case (state)
@@ -51,14 +52,14 @@ module uart_tx #(
 
                     if (start_i) begin
                         shift_reg <= data_i;
-                        bit_cnt   <= 3'd0;
-                        state     <= ST_START;
+                        bit_cnt <= '0;
+                        state <= ST_START;
                     end
                 end
 
                 ST_START: begin
-                    if (cnt == BIT_LAST) begin
-                        cnt   <= '0;
+                    if (cnt == BIT_CYCLES - 1) begin
+                        cnt <= '0;
                         state <= ST_DATA;
                     end else begin
                         cnt <= cnt + 1'b1;
@@ -66,13 +67,13 @@ module uart_tx #(
                 end
 
                 ST_DATA: begin
-                    if (cnt == BIT_LAST) begin
+                    if (cnt == BIT_CYCLES - 1) begin
                         cnt <= '0;
 
                         if (bit_cnt == 3'd7) begin
                             state <= ST_STOP;
                         end else begin
-                            bit_cnt   <= bit_cnt + 1'b1;
+                            bit_cnt <= bit_cnt + 1'b1;
                             shift_reg <= {1'b0, shift_reg[7:1]};
                         end
                     end else begin
@@ -81,8 +82,8 @@ module uart_tx #(
                 end
 
                 ST_STOP: begin
-                    if (cnt == BIT_LAST) begin
-                        cnt   <= '0;
+                    if (cnt == BIT_CYCLES - 1) begin
+                        cnt <= '0;
                         state <= ST_IDLE;
                     end else begin
                         cnt <= cnt + 1'b1;
@@ -91,7 +92,7 @@ module uart_tx #(
 
                 default: begin
                     state <= ST_IDLE;
-                    cnt   <= '0;
+                    cnt <= '0;
                 end
 
             endcase
