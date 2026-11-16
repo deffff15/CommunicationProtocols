@@ -2,36 +2,39 @@
 module uart_rx #(
     parameter int CLK_DIV = 27
 )(
-    input logic clk,
-    input logic rst_n,
+    input  logic       clk,
+    input  logic       rst_n,
     output logic [7:0] rx_data_o,
-    output logic valid_o,
-    output logic error_o,
-    input logic rx_i
+    output logic       valid_o,
+    output logic       error_o,
+    input  logic       rx_i
 );
 
+    localparam int BIT_CYCLES = 16 * CLK_DIV;
+    localparam int CNT_WIDTH = (BIT_CYCLES <= 1) ? 1 : $clog2(BIT_CYCLES);
+
+    localparam logic [CNT_WIDTH-1:0] HALF_BIT = BIT_CYCLES / 2 - 1;
+    localparam logic [CNT_WIDTH-1:0] BIT_LAST = BIT_CYCLES - 1;
+
     typedef enum logic [1:0] {
-        ST_IDLE = 2'd0,
-        ST_START = 2'd1,
-        ST_DATA = 2'd2,
-        ST_STOP = 2'd3
+        ST_IDLE,
+        ST_START,
+        ST_DATA,
+        ST_STOP
     } state_t;
 
-    state_t c_state, n_state;
+    state_t state;
 
     logic [1:0] rx_sync;
     logic rx_fall;
-    logic [$clog2(CLK_DIV)-1:0] div_cnt;
-    logic [3:0] phase;
-    logic phase_tick;
+
+    logic [CNT_WIDTH-1:0] cnt;
     logic [2:0] bit_cnt;
     logic [7:0] shift_reg;
-    logic valid_r;
-    logic error_r;
+
+    assign rx_fall = (rx_sync == 2'b10);
 
     assign rx_data_o = shift_reg;
-    assign valid_o = valid_r;
-    assign error_o = error_r;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -41,84 +44,84 @@ module uart_rx #(
         end
     end
 
-    assign rx_fall = (rx_sync == 2'b10);
-
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            div_cnt <= '0;
-            phase <= 4'd0;
-            phase_tick <= 1'b0;
-        end else if (c_state == ST_IDLE) begin
-            div_cnt <= '0;
-            phase <= 4'd0;
-            phase_tick <= 1'b0;
+            state     <= ST_IDLE;
+            cnt       <= '0;
+            bit_cnt   <= '0;
+            shift_reg <= '0;
+            valid_o   <= 1'b0;
+            error_o   <= 1'b0;
         end else begin
-            if (div_cnt == CLK_DIV - 1) begin
-                div_cnt <= '0;
-                phase_tick <= 1'b1;
 
-                if (c_state == ST_START && phase == 4'd7)
-                    phase <= 4'd0;
-                else
-                    phase <= phase + 4'd1;
-            end else begin
-                div_cnt <= div_cnt + 1'b1;
-                phase_tick <= 1'b0;
-            end
-        end
-    end
+            valid_o <= 1'b0;
+            error_o <= 1'b0;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            c_state <= ST_IDLE;
-            bit_cnt <= 3'd0;
-            shift_reg <= 8'd0;
-            valid_r <= 1'b0;
-            error_r <= 1'b0;
-        end else begin
-            c_state <= n_state;
-            valid_r <= 1'b0;
+            case (state)
 
-            if (c_state == ST_IDLE && rx_fall) begin
-                bit_cnt <= 3'd0;
-                error_r <= 1'b0;
-            end else if (phase_tick && phase == 4'd15) begin
-                if (c_state == ST_DATA) begin
-                    shift_reg[bit_cnt] <= rx_sync[0];
-                    if (bit_cnt < 3'd7)
-                        bit_cnt <= bit_cnt + 3'd1;
-                end else if (c_state == ST_STOP) begin
-                    if (rx_sync[0] == 1'b1)
-                        valid_r <= 1'b1;
-                    else
-                        error_r <= 1'b1;
+                ST_IDLE: begin
+                    cnt <= '0;
+
+                    if (rx_fall) begin
+                        state   <= ST_START;
+                        bit_cnt <= '0;
+                        error_o <= 1'b0;
+                    end
                 end
-            end
+
+                ST_START: begin
+                    if (cnt == HALF_BIT) begin
+                        cnt <= '0;
+
+                        if (rx_sync[1] == 1'b0) begin
+                            state <= ST_DATA;
+                        end else begin
+                            state <= ST_IDLE;
+                        end
+                    end else begin
+                        cnt <= cnt + 1'b1;
+                    end
+                end
+
+                ST_DATA: begin
+                    if (cnt == BIT_LAST) begin
+                        cnt <= '0;
+
+                        shift_reg[bit_cnt] <= rx_sync[1];
+
+                        if (bit_cnt == 3'd7) begin
+                            state <= ST_STOP;
+                        end else begin
+                            bit_cnt <= bit_cnt + 1'b1;
+                        end
+                    end else begin
+                        cnt <= cnt + 1'b1;
+                    end
+                end
+
+                ST_STOP: begin
+                    if (cnt == BIT_LAST) begin
+                        cnt <= '0;
+                        state <= ST_IDLE;
+
+                        if (rx_sync[1] == 1'b1) begin
+                            valid_o <= 1'b1;
+                        end else begin
+                            error_o <= 1'b1;
+                        end
+                    end else begin
+                        cnt <= cnt + 1'b1;
+                    end
+                end
+
+                default: begin
+                    state <= ST_IDLE;
+                    cnt   <= '0;
+                end
+
+            endcase
         end
-    end
-
-    always_comb begin
-        n_state = c_state;
-
-        case (c_state)
-            ST_IDLE:
-                if (rx_fall) n_state = ST_START;
-
-            ST_START:
-                if (phase_tick && phase == 4'd7)
-                    n_state = (rx_sync[0] == 1'b0) ? ST_DATA : ST_IDLE;
-
-            ST_DATA:
-                if (phase_tick && phase == 4'd15 && bit_cnt == 3'd7)
-                    n_state = ST_STOP;
-
-            ST_STOP:
-                if (phase_tick && phase == 4'd15)
-                    n_state = ST_IDLE;
-
-            default:
-                n_state = ST_IDLE;
-        endcase
     end
 
 endmodule
+      

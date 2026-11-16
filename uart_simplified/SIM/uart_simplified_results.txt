@@ -1,17 +1,17 @@
 ---------------- scoreboard ----------------
 cycles checked          : 404402
-errors                  : 81
+errors                  : 7
 tx transfers started    : 69
 tx transfers correct    : 56
 start_i ignored (busy)  : 12958
 back-to-back tx         : 2
-busy != 10 bit times    : 56 (last 4321, nominal 4320)
+busy != 10 bit times    : 0 (last 4320, nominal 4320)
 rx frames seen          : 106
   from tx (loopback)    : 69
   from external source  : 37
-rx correct, loopback    : 0
-rx correct, external    : 0
-framing errors flagged  : 3
+rx correct, loopback    : 58
+rx correct, external    : 19
+framing errors flagged  : 0
 false starts ignored    : 8
 resets mid tx transfer  : 13
 resets mid rx frame     : 14
