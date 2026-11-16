@@ -1,0 +1,27 @@
+---------------- scoreboard ----------------
+cycles checked          : 404402
+errors                  : 24
+tx transfers started    : 70
+tx transfers correct    : 58
+start_i ignored (busy)  : 12957
+back-to-back tx         : 3
+busy != 10 bit times    : 58 (last 4294, nominal 4320)
+rx frames seen          : 107
+  from tx (loopback)    : 70
+  from external source  : 37
+rx correct, loopback    : 58
+rx correct, external    : 0
+framing errors flagged  : 3
+false starts ignored    : 8
+resets mid tx transfer  : 12
+resets mid rx frame     : 14
+resets while idle       : 5
+tx data bit 0: ones 35, zeros 35
+tx data bit 1: ones 33, zeros 37
+tx data bit 2: ones 39, zeros 31
+tx data bit 3: ones 34, zeros 36
+tx data bit 4: ones 37, zeros 33
+tx data bit 5: ones 36, zeros 34
+tx data bit 6: ones 29, zeros 41
+tx data bit 7: ones 34, zeros 36
+--------------------------------------------
