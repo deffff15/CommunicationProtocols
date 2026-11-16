@@ -10,93 +10,97 @@ module uart_tx #(
     output logic tx_o
 );
 
-    localparam int BIT_CYCLES = 16 * CLK_DIV;
-    localparam int CNT_WIDTH = (BIT_CYCLES <= 1) ? 1 : $clog2(BIT_CYCLES);
-
     typedef enum logic [1:0] {
-        ST_IDLE,
-        ST_START,
-        ST_DATA,
-        ST_STOP
+        ST_IDLE = 2'd0,
+        ST_START = 2'd1,
+        ST_DATA = 2'd2,
+        ST_STOP = 2'd3
     } state_t;
 
-    state_t state;
+    state_t c_state, n_state;
 
-    logic [CNT_WIDTH-1:0] cnt;
+    logic [$clog2(CLK_DIV)-1:0] div_cnt;
+    logic [3:0] phase;
+    logic phase_tick;
     logic [2:0] bit_cnt;
     logic [7:0] shift_reg;
 
-    assign busy_o = (state != ST_IDLE);
+    assign busy_o = (c_state != ST_IDLE);
 
     always_comb begin
         tx_o = 1'b1;
 
-        case (state)
+        case (c_state)
+            ST_IDLE: tx_o = 1'b1;
             ST_START: tx_o = 1'b0;
-            ST_DATA: tx_o = shift_reg[0];
+            ST_DATA: tx_o = shift_reg[bit_cnt];
+            ST_STOP: tx_o = 1'b1;
             default: tx_o = 1'b1;
         endcase
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state <= ST_IDLE;
-            cnt <= '0;
-            bit_cnt <= '0;
-            shift_reg <= '0;
+            div_cnt <= '0;
+            phase <= 4'd0;
+            phase_tick <= 1'b0;
+        end else if (c_state == ST_IDLE) begin
+            div_cnt <= '0;
+            phase <= 4'd0;
+            phase_tick <= 1'b0;
         end else begin
-            case (state)
-
-                ST_IDLE: begin
-                    cnt <= '0;
-
-                    if (start_i) begin
-                        shift_reg <= data_i;
-                        bit_cnt <= '0;
-                        state <= ST_START;
-                    end
-                end
-
-                ST_START: begin
-                    if (cnt == BIT_CYCLES - 1) begin
-                        cnt <= '0;
-                        state <= ST_DATA;
-                    end else begin
-                        cnt <= cnt + 1'b1;
-                    end
-                end
-
-                ST_DATA: begin
-                    if (cnt == BIT_CYCLES - 1) begin
-                        cnt <= '0;
-
-                        if (bit_cnt == 3'd7) begin
-                            state <= ST_STOP;
-                        end else begin
-                            bit_cnt <= bit_cnt + 1'b1;
-                            shift_reg <= {1'b0, shift_reg[7:1]};
-                        end
-                    end else begin
-                        cnt <= cnt + 1'b1;
-                    end
-                end
-
-                ST_STOP: begin
-                    if (cnt == BIT_CYCLES - 1) begin
-                        cnt <= '0;
-                        state <= ST_IDLE;
-                    end else begin
-                        cnt <= cnt + 1'b1;
-                    end
-                end
-
-                default: begin
-                    state <= ST_IDLE;
-                    cnt <= '0;
-                end
-
-            endcase
+            if (div_cnt == CLK_DIV - 1) begin
+                div_cnt <= '0;
+                phase <= phase + 4'd1;
+                phase_tick <= 1'b1;
+            end else begin
+                div_cnt <= div_cnt + 1'b1;
+                phase_tick <= 1'b0;
+            end
         end
+    end
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            c_state <= ST_IDLE;
+            bit_cnt <= 3'd0;
+            shift_reg <= 8'd0;
+        end else begin
+            c_state <= n_state;
+
+            if (c_state == ST_IDLE && start_i) begin
+                shift_reg <= data_i;
+                bit_cnt <= 3'd0;
+            end else if (phase_tick && phase == 4'd15) begin
+                if (c_state == ST_DATA && bit_cnt < 3'd7)
+                    bit_cnt <= bit_cnt + 3'd1;
+            end
+        end
+    end
+
+    always_comb begin
+        n_state = c_state;
+
+        case (c_state)
+            ST_IDLE:
+                if (start_i)
+                    n_state = ST_START;
+
+            ST_START:
+                if (phase_tick && phase == 4'd15)
+                    n_state = ST_DATA;
+
+            ST_DATA:
+                if (phase_tick && phase == 4'd15 && bit_cnt == 3'd7)
+                    n_state = ST_STOP;
+
+            ST_STOP:
+                if (phase_tick && phase == 4'd15)
+                    n_state = ST_IDLE;
+
+            default:
+                n_state = ST_IDLE;
+        endcase
     end
 
 endmodule
